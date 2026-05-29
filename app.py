@@ -35,8 +35,9 @@ st.title("X-Ray Analyzer")
 
 # Sidebar for API key and image upload
 with st.sidebar:
-    api_key = st.text_input("Groq API Key", type="password")
-    uploaded_file = st.file_uploader("Upload X-Ray", type=["jpg", "jpeg", "png"])
+    #api_key = st.text_input("Groq API Key", type="password")
+   api_key = st.secrets["GROQ_API_KEY"] 
+   uploaded_file = st.file_uploader("Upload X-Ray", type=["jpg", "jpeg", "png"])
     if uploaded_file:
         st.image(uploaded_file, caption="Uploaded X-Ray", use_container_width=True)
     if st.button("New Session"):
