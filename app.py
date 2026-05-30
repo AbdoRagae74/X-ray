@@ -2,14 +2,6 @@ import streamlit as st
 import groq
 import base64
 
-SYSTEM_INSTRUCTION = (
-    "You are an expert radiologist and a friendly assistant. "
-    "When analyzing X-rays, be thorough, precise, and use standard radiology terminology. "
-    "Always end every X-ray report with: abuelfeda Radiologist - X-Ray Reader\n"
-    "When re-analyzing a region, start with 'Re-analyzing the [region] as requested.' and add a 'Re-evaluation of [region]' subsection. "
-    "For general questions unrelated to imaging, respond naturally and helpfully."
-)
-
 st.title("X-Ray Analyzer")
 
 # Session state
@@ -45,15 +37,43 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-def send_message(user_text, image_data=None):
-    api_messages = [{"role": "system", "content": SYSTEM_INSTRUCTION}]
+INITIAL_PROMPT = """You are an expert radiologist. Analyze this X-ray image and provide a detailed report with these sections:
+
+Exam Type, Technique, Findings, Impression, Recommendation.
+
+Examine every visible structure carefully — bones, soft tissues, lung fields, heart, diaphragm, mediastinum, pleural spaces. Report ALL findings, normal and abnormal. Minimum 150 words.
+
+End your report with exactly:
+abuelfeda Radiologist - X-Ray Reader
+
+Then ask: Is there any area you want me to double-check or re-analyze? Please specify the region or finding."""
+
+REANALYSIS_INSTRUCTION = """You are an expert radiologist reviewing this X-ray again.
+- Start with "Re-analyzing the [region] as requested."
+- Add a "Re-evaluation of [region]" subsection under Findings.
+- Update Impression and Recommendation if needed.
+- End with: abuelfeda Radiologist - X-Ray Reader
+- Ask again if further refinement is needed."""
+
+def send_message(user_text, image_data=None, is_initial=False, is_reanalysis=False):
+    api_messages = []
+
+    # Add chat history
     for m in st.session_state.messages:
         api_messages.append({"role": m["role"], "content": m["content"]})
 
+    # Build current user content
     if image_data:
+        if is_initial:
+            text = INITIAL_PROMPT
+        elif is_reanalysis:
+            text = f"{REANALYSIS_INSTRUCTION}\n\nUser request: {user_text}"
+        else:
+            text = user_text
+
         content = [
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-            {"type": "text", "text": user_text}
+            {"type": "text", "text": text}
         ]
     else:
         content = user_text
@@ -68,24 +88,13 @@ def send_message(user_text, image_data=None):
     )
     return response.choices[0].message.content
 
-INITIAL_PROMPT = (
-    "You are an expert radiologist. Carefully examine this X-ray image pixel by pixel. "
-    "Identify the body part, then systematically analyze every visible structure: "
-    "bones (cortex, trabecular pattern, alignment, density), soft tissues, lung fields (if chest), "
-    "heart size and borders, diaphragm, mediastinum, pleural spaces, and any foreign bodies or devices. "
-    "Report ALL findings — normal and abnormal. Do not skip any region. "
-    "Structure your report as: Exam Type, Technique, Findings, Impression, Recommendation. "
-    "Minimum 150 words. End with:\nabuelfeda Radiologist - X-Ray Reader\n\n"
-    "Then ask: 'Is there any area you want me to double-check or re-analyze?'"
-)
-
 # Auto-analyze on image upload
 if st.session_state.image_data and not st.session_state.messages:
     with st.chat_message("user"):
         st.write("Please analyze this X-ray.")
     with st.chat_message("assistant"):
         with st.spinner("Analyzing..."):
-            reply = send_message(INITIAL_PROMPT, st.session_state.image_data)
+            reply = send_message("", st.session_state.image_data, is_initial=True)
         st.write(reply)
 
     st.session_state.messages.append({"role": "user", "content": "Please analyze this X-ray."})
@@ -96,9 +105,12 @@ user_input = st.chat_input("Ask anything or request re-analysis...")
 if user_input:
     with st.chat_message("user"):
         st.write(user_input)
+
+    is_reanalysis = st.session_state.image_data is not None and st.session_state.messages
+
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            reply = send_message(user_input, st.session_state.image_data)
+            reply = send_message(user_input, st.session_state.image_data, is_reanalysis=bool(is_reanalysis))
         st.write(reply)
 
     st.session_state.messages.append({"role": "user", "content": user_input})
