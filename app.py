@@ -45,7 +45,9 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload X-Ray", type=["jpg", "jpeg", "png"])
     if uploaded_file:
         st.image(uploaded_file, caption="Uploaded X-Ray", use_container_width=True)
-        st.session_state.image_data = base64.b64encode(uploaded_file.read()).decode("utf-8")
+        img_bytes = uploaded_file.read()
+        if img_bytes:
+            st.session_state.image_data = base64.b64encode(img_bytes).decode("utf-8")
 
     if st.session_state.messages:
         history_text = "\n\n".join(
