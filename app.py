@@ -33,97 +33,88 @@ General Chat Rules:
 
 st.title("X-Ray Analyzer")
 
-# Sidebar for API key and image upload
-with st.sidebar:
-    #api_key = st.text_input("Groq API Key", type="password")
-    api_key = st.secrets["GROQ_API_KEY"]
-    uploaded_file = st.file_uploader("Upload X-Ray", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        st.image(uploaded_file, caption="Uploaded X-Ray", use_container_width=True)
-    if st.button("New Session"):
-        st.session_state.messages = []
-        st.session_state.image_data = None
-        st.rerun()
-
 # Session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "image_data" not in st.session_state:
     st.session_state.image_data = None
 
-# Store image in session on upload
-if uploaded_file:
-    image_bytes = uploaded_file.read()
-    st.session_state.image_data = base64.b64encode(image_bytes).decode("utf-8")
+# Sidebar
+with st.sidebar:
+    api_key = st.secrets["GROQ_API_KEY"]
+    uploaded_file = st.file_uploader("Upload X-Ray", type=["jpg", "jpeg", "png"])
+    if uploaded_file:
+        st.image(uploaded_file, caption="Uploaded X-Ray", use_container_width=True)
+        st.session_state.image_data = base64.b64encode(uploaded_file.read()).decode("utf-8")
+
+    if st.session_state.messages:
+        history_text = "\n\n".join(
+            f"{'You' if m['role'] == 'user' else 'Assistant'}:\n{m['content']}"
+            for m in st.session_state.messages
+        )
+        st.download_button("Download Chat", history_text, file_name="xray_report.txt", mime="text/plain")
+
+    if st.button("New Session"):
+        st.session_state.messages = []
+        st.session_state.image_data = None
+        st.rerun()
 
 # Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# Trigger initial analysis automatically when image is uploaded and no messages yet
-if st.session_state.image_data and not st.session_state.messages and api_key:
+def send_message(user_text, image_data=None):
+    api_messages = [{"role": "system", "content": SYSTEM_INSTRUCTION}]
+    for m in st.session_state.messages:
+        api_messages.append({"role": m["role"], "content": m["content"]})
+
+    if image_data:
+        content = [
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
+            {"type": "text", "text": user_text}
+        ]
+    else:
+        content = user_text
+
+    api_messages.append({"role": "user", "content": content})
+
+    client = groq.Groq(api_key=api_key)
+    response = client.chat.completions.create(
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        messages=api_messages,
+        max_tokens=2048
+    )
+    return response.choices[0].message.content
+
+INITIAL_PROMPT = (
+    "Please perform a thorough radiological analysis of this X-ray image. "
+    "Carefully examine every visible structure — bones, soft tissues, lung fields, heart, diaphragm, "
+    "mediastinum, and any other visible anatomy. Look for any abnormalities, asymmetries, densities, "
+    "fractures, effusions, or pathological findings. Be as detailed and precise as possible."
+)
+
+# Auto-analyze on image upload
+if st.session_state.image_data and not st.session_state.messages:
     with st.chat_message("user"):
         st.write("Please analyze this X-ray.")
-
     with st.chat_message("assistant"):
         with st.spinner("Analyzing..."):
-            client = groq.Groq(api_key=api_key)
-            response = client.chat.completions.create(
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
-                messages=[
-                    {"role": "system", "content": SYSTEM_INSTRUCTION},
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{st.session_state.image_data}"}
-                            },
-                            {"type": "text", "text": "Please analyze this X-ray."}
-                        ]
-                    }
-                ],
-                max_tokens=2048
-            )
-            reply = response.choices[0].message.content
-            st.write(reply)
+            reply = send_message(INITIAL_PROMPT, st.session_state.image_data)
+        st.write(reply)
 
     st.session_state.messages.append({"role": "user", "content": "Please analyze this X-ray."})
     st.session_state.messages.append({"role": "assistant", "content": reply})
 
-# Chat input (always available once API key is set)
-if api_key:
-    user_input = st.chat_input("Ask anything, or request re-analysis...")
-    if user_input:
-        with st.chat_message("user"):
-            st.write(user_input)
+# Chat input
+user_input = st.chat_input("Ask anything or request re-analysis...")
+if user_input:
+    with st.chat_message("user"):
+        st.write(user_input)
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            reply = send_message(user_input, st.session_state.image_data)
+        st.write(reply)
 
-        # Build messages for API: system + history + new user message (with image attached)
-        api_messages = [{"role": "system", "content": SYSTEM_INSTRUCTION}]
-        for msg in st.session_state.messages:
-            api_messages.append({"role": msg["role"], "content": msg["content"]})
-        api_messages.append({
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{st.session_state.image_data}"}
-                },
-                {"type": "text", "text": user_input}
-            ]
-        })
-
-        with st.chat_message("assistant"):
-            with st.spinner("Re-analyzing..."):
-                client = groq.Groq(api_key=api_key)
-                response = client.chat.completions.create(
-                    model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    messages=api_messages,
-                    max_tokens=2048
-                )
-                reply = response.choices[0].message.content
-                st.write(reply)
-
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    st.session_state.messages.append({"role": "assistant", "content": reply})
