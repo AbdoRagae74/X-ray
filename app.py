@@ -37,64 +37,43 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-INITIAL_PROMPT = """You are an expert radiologist. Analyze this X-ray image and provide a detailed report with these sections:
-
-Exam Type, Technique, Findings, Impression, Recommendation.
-
-Examine every visible structure carefully — bones, soft tissues, lung fields, heart, diaphragm, mediastinum, pleural spaces. Report ALL findings, normal and abnormal. Minimum 150 words.
-
-End your report with exactly:
-abuelfeda Radiologist - X-Ray Reader
-
-Then ask: Is there any area you want me to double-check or re-analyze? Please specify the region or finding."""
-
-REANALYSIS_INSTRUCTION = """You are an expert radiologist reviewing this X-ray again.
-- Start with "Re-analyzing the [region] as requested."
-- Add a "Re-evaluation of [region]" subsection under Findings.
-- Update Impression and Recommendation if needed.
-- End with: abuelfeda Radiologist - X-Ray Reader
-- Ask again if further refinement is needed."""
-
-def send_message(user_text, image_data=None, is_initial=False, is_reanalysis=False):
-    api_messages = []
-
-    # Add chat history
-    for m in st.session_state.messages:
-        api_messages.append({"role": m["role"], "content": m["content"]})
-
-    # Build current user content
-    if image_data:
-        if is_initial:
-            text = INITIAL_PROMPT
-        elif is_reanalysis:
-            text = f"{REANALYSIS_INSTRUCTION}\n\nUser request: {user_text}"
-        else:
-            text = user_text
-
-        content = [
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-            {"type": "text", "text": text}
-        ]
-    else:
-        content = user_text
-
-    api_messages.append({"role": "user", "content": content})
-
+def call_groq(messages, max_tokens=1024):
     client = groq.Groq(api_key=api_key)
     response = client.chat.completions.create(
         model="meta-llama/llama-4-scout-17b-16e-instruct",
-        messages=api_messages,
-        max_tokens=2048
+        messages=messages,
+        max_tokens=max_tokens
     )
     return response.choices[0].message.content
 
-# Auto-analyze on image upload
+# Auto-analyze on image upload — same exact call as app22.py
 if st.session_state.image_data and not st.session_state.messages:
     with st.chat_message("user"):
         st.write("Please analyze this X-ray.")
     with st.chat_message("assistant"):
         with st.spinner("Analyzing..."):
-            reply = send_message("", st.session_state.image_data, is_initial=True)
+            reply = call_groq([{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{st.session_state.image_data}"}
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "You are a medical imaging assistant. Analyze this X-ray and provide:\n"
+                            "1. Body part shown\n"
+                            "2. Any visible abnormalities or findings\n"
+                            "3. Overall impression\n\n"
+                            "Be concise and clear.\n\n"
+                            "Structure your response with: Exam Type, Technique, Findings, Impression, Recommendation.\n"
+                            "End with:\nabuelfeda Radiologist - X-Ray Reader\n\n"
+                            "Then ask if the user wants any area re-analyzed."
+                        )
+                    }
+                ]
+            }])
         st.write(reply)
 
     st.session_state.messages.append({"role": "user", "content": "Please analyze this X-ray."})
@@ -106,11 +85,28 @@ if user_input:
     with st.chat_message("user"):
         st.write(user_input)
 
-    is_reanalysis = st.session_state.image_data is not None and st.session_state.messages
-
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            reply = send_message(user_input, st.session_state.image_data, is_reanalysis=bool(is_reanalysis))
+            # Build history + new message, re-attach image for re-analysis
+            api_messages = []
+            for m in st.session_state.messages:
+                api_messages.append({"role": m["role"], "content": m["content"]})
+
+            if st.session_state.image_data:
+                api_messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{st.session_state.image_data}"}
+                        },
+                        {"type": "text", "text": user_input}
+                    ]
+                })
+            else:
+                api_messages.append({"role": "user", "content": user_input})
+
+            reply = call_groq(api_messages, max_tokens=2048)
         st.write(reply)
 
     st.session_state.messages.append({"role": "user", "content": user_input})
