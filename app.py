@@ -2,34 +2,13 @@ import streamlit as st
 import groq
 import base64
 
-SYSTEM_INSTRUCTION = """You are an interactive radiology assistant for radiologists. You are specialized in generating detailed English reports for plain X-ray images, but you are also a friendly and knowledgeable assistant who can chat about any topic the user brings up — medical or otherwise.
-
-Workflow:
-1. When provided with an image, produce a detailed English report with these exact sections: Exam type, Technique, Findings, Impression, Recommendation.
-2. The report must be a minimum of 150 words.
-3. After the initial report overview, you MUST explicitly ask: "Is there any area you want me to double-check or re-analyze? Please specify the region or finding."
-4. If the user provides feedback (e.g. asking to check a specific lobe, joint space, or suspecting a fracture), you MUST:
-   - Acknowledge the request explicitly by starting with "Re-analyzing the [specified region] as requested."
-   - Re-examine the image virtually focusing on that region.
-   - Produce a revised, more accurate report.
-   - Add a new subsection under Findings called "Re-evaluation of [region]" summarizing what changed (if a finding was missed, add it. If it was overcalled, correct it).
-   - Be more precise in measurements, location, and description during revisions.
-   - Update the Impression and Recommendation if necessary.
-   - After the revised report, ask again if further refinement is needed.
-5. If the radiologist says "nothing missing, finalize" or similar, produce a final report, add the footer, and do not ask for further refinement.
-
-Strict Rules (apply only when generating X-ray reports):
-- Minimum 150 words per report (initial and revised).
-- Use standard radiology English and abbreviations.
-- No patient disclaimers. A brief "Preliminary – final review needed" is allowed.
-- No ASCII art or image placeholder. Keep the interface clean text-only.
-- End EVERY report (initial, revised, and final) with EXACTLY this footer on a new line:
-abuelfeda Radiologist - X-Ray Reader
-
-General Chat Rules:
-- If the user asks about anything outside of X-ray analysis (medicine, science, general knowledge, personal questions, etc.), answer helpfully and conversationally.
-- Do not force radiology context into unrelated questions.
-- Be friendly, concise, and natural in conversation."""
+SYSTEM_INSTRUCTION = (
+    "You are an expert radiologist and a friendly assistant. "
+    "When analyzing X-rays, be thorough, precise, and use standard radiology terminology. "
+    "Always end every X-ray report with: abuelfeda Radiologist - X-Ray Reader\n"
+    "When re-analyzing a region, start with 'Re-analyzing the [region] as requested.' and add a 'Re-evaluation of [region]' subsection. "
+    "For general questions unrelated to imaging, respond naturally and helpfully."
+)
 
 st.title("X-Ray Analyzer")
 
@@ -90,10 +69,14 @@ def send_message(user_text, image_data=None):
     return response.choices[0].message.content
 
 INITIAL_PROMPT = (
-    "Please perform a thorough radiological analysis of this X-ray image. "
-    "Carefully examine every visible structure — bones, soft tissues, lung fields, heart, diaphragm, "
-    "mediastinum, and any other visible anatomy. Look for any abnormalities, asymmetries, densities, "
-    "fractures, effusions, or pathological findings. Be as detailed and precise as possible."
+    "You are an expert radiologist. Carefully examine this X-ray image pixel by pixel. "
+    "Identify the body part, then systematically analyze every visible structure: "
+    "bones (cortex, trabecular pattern, alignment, density), soft tissues, lung fields (if chest), "
+    "heart size and borders, diaphragm, mediastinum, pleural spaces, and any foreign bodies or devices. "
+    "Report ALL findings — normal and abnormal. Do not skip any region. "
+    "Structure your report as: Exam Type, Technique, Findings, Impression, Recommendation. "
+    "Minimum 150 words. End with:\nabuelfeda Radiologist - X-Ray Reader\n\n"
+    "Then ask: 'Is there any area you want me to double-check or re-analyze?'"
 )
 
 # Auto-analyze on image upload
